@@ -29,7 +29,15 @@ async def root():
 @router.get("/health", response_model=HealthResponse)
 async def health_check(req: Request
 ):
-    """Health check endpoint."""
+    """
+    Health check endpoint.
+
+    Used by the React frontend (AgentJobMatch component) to:
+    - Display agent initialization status in the UI
+    - Show database connection status
+    - Indicate AI services availability
+    - Update the status bar with real-time health information
+    """
     agent = req.state.agent_manager
     return HRAPI.get_health_status(agent)
 
@@ -55,6 +63,13 @@ async def upload_resume(
     """
     Upload a resume PDF for processing.
 
+    Used by the React frontend (UploadResumes page) to:
+    - Accept PDF resume uploads from users
+    - Save files to the resumes directory
+    - Process resumes in background (text extraction, LLM analysis, vector embedding)
+    - Store candidate data in Couchbase for future candidate searches
+    - Update the frontend with success/error messages via toast notifications
+
     The resume will be:
     1. Saved to the resumes directory
     2. Processed in the background (parsing + embedding generation)
@@ -77,6 +92,12 @@ async def list_candidates(req: Request, limit: int = 10, offset: int = 0):
 async def get_stats(req: Request):
     """
     Get statistics about the candidate database.
+
+    Used by the React frontend (AgentJobMatch component) to:
+    - Display total number of candidates in the database
+    - Show top skills distribution for database overview
+    - Update statistics in the UI after resume uploads
+    - Provide real-time database status information
     """
     agent = req.state.agent_manager
     return HRAPI.get_stats(agent)

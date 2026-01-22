@@ -21,7 +21,15 @@ class HRAPI:
 
     @staticmethod
     def get_health_status(agent_manager: AgentManager) -> HealthResponse:
-        """Get health status of the system."""
+        """
+        Get health status of the system.
+
+        Called by the React frontend's AgentJobMatch component via GET /health to:
+        - Check if the AI agent is properly initialized
+        - Verify Couchbase database connectivity
+        - Confirm AI services (embeddings, LLM) are available
+        - Display real-time status indicators in the UI status bar
+        """
         agent_ok = agent_manager.agent_executor is not None
         couchbase_ok = agent_manager.couchbase_client is not None and agent_manager.couchbase_client.cluster is not None
         ai_ok = agent_manager.embeddings is not None and agent_manager.llm is not None
@@ -336,6 +344,12 @@ class HRAPI:
     def get_stats(agent_manager: AgentManager) -> Dict[str, Any]:
         """
         Get statistics about the candidate database.
+
+        Called by the React frontend's AgentJobMatch component via GET /api/stats to:
+        - Display the total number of candidates in the database
+        - Show top skills distribution in the database overview section
+        - Update statistics after resume uploads via React Query cache invalidation
+        - Provide real-time database status information for the UI
         """
         if agent_manager.couchbase_client is None or agent_manager.couchbase_client.cluster is None:
             raise HTTPException(
@@ -357,7 +371,7 @@ class HRAPI:
             skills_query = f"""
                 SELECT DISTINCT skill
                 FROM `{bucket_name}`.`{scope_name}`.`{collection_name}` AS c
-                UNNEST c.skills AS skill
+                UNNEST c.metadata.skills AS skill
                 LIMIT 50
             """
             skills_result = agent_manager.couchbase_client.cluster.query(skills_query)
@@ -377,6 +391,12 @@ class HRAPI:
     def search_candidates_direct(agent_manager: AgentManager, request: JobMatchRequest) -> JobMatchResponse:
         """
         Direct vector search for candidates (FAST - bypasses agent reasoning).
+
+        Called by the React frontend's AgentJobMatch component via POST /api/search to:
+        - Quickly match job descriptions against candidate resumes using vector similarity
+        - Return ranked candidates with match scores for immediate display in the UI
+        - Provide simplified reasoning text for the results section
+        - Enable fast user interactions without waiting for full AI agent processing
 
         This method directly calls the vector search tool without the ReAct agent loop,
         providing near-instant results.

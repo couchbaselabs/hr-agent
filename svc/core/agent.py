@@ -190,33 +190,60 @@ class AgentManager:
             # Load tools from catalog using v1.0.0 API
             # catalog.find() returns a single result when searching by name, or None if not found
             print("\n" + "="*50)
-            print("🔍 AGENT CATALOG: Loading tool...")
+            print("🔍 AGENT CATALOG: Loading tools...")
             print("="*50)
-            tool_result = self.catalog.find("tool", name="search_candidates_vector")
-            if tool_result is None:
+
+            tools = []
+
+            # Load search_candidates_vector tool
+            search_tool_result = self.catalog.find("tool", name="search_candidates_vector")
+            if search_tool_result is None:
                 raise ValueError("Could not find search_candidates_vector tool in catalog. Run 'agentc index' first.")
 
-            # In v1.0.0, tool_result has: func, meta, and input attributes
-            print(f"✅ AGENT CATALOG: Loaded tool '{tool_result.meta.name}'")
-            print(f"   Description: {tool_result.meta.description[:80]}...")
-            logger.info(f"✅ Loaded tool from Agent Catalog: {tool_result.meta.name}")
+            print(f"✅ AGENT CATALOG: Loaded tool '{search_tool_result.meta.name}'")
+            print(f"   Description: {search_tool_result.meta.description[:80]}...")
+            logger.info(f"✅ Loaded tool from Agent Catalog: {search_tool_result.meta.name}")
 
             # Create tool wrapper that injects embeddings client
             def search_with_embeddings(job_description: str) -> str:
-                return tool_result.func(
+                return search_tool_result.func(
                     job_description=job_description,
                     num_results=5,
                     embeddings_client=self.embeddings,
                     agent_manager=self
                 )
 
-            tools = [
+            tools.append(
                 Tool(
-                    name=tool_result.meta.name,
-                    description=tool_result.meta.description,
+                    name=search_tool_result.meta.name,
+                    description=search_tool_result.meta.description,
                     func=search_with_embeddings,
-                ),
-            ]
+                )
+            )
+
+            # Load analyze_resume tool
+            analyze_tool_result = self.catalog.find("tool", name="analyze_resume")
+            if analyze_tool_result is not None:
+                print(f"✅ AGENT CATALOG: Loaded tool '{analyze_tool_result.meta.name}'")
+                print(f"   Description: {analyze_tool_result.meta.description[:80]}...")
+                logger.info(f"✅ Loaded tool from Agent Catalog: {analyze_tool_result.meta.name}")
+
+                # Create tool wrapper for resume analysis
+                def analyze_with_agent_manager(resume_text: str) -> str:
+                    return analyze_tool_result.func(
+                        resume_text=resume_text,
+                        agent_manager=self
+                    )
+
+                tools.append(
+                    Tool(
+                        name=analyze_tool_result.meta.name,
+                        description=analyze_tool_result.meta.description,
+                        func=analyze_with_agent_manager,
+                    )
+                )
+            else:
+                logger.warning("⚠️ Could not find analyze_resume tool in catalog. It will not be available.")
 
             # Load prompt from catalog using v1.0.0 API
             # catalog.find() returns a single PromptResult when searching by name
