@@ -1,3 +1,5 @@
+# syntax = docker/dockerfile:1.4
+
 # Multi-stage Dockerfile for building frontend and backend together
 # The backend serves the frontend as static content
 
@@ -44,6 +46,7 @@ ENV POETRY_NO_INTERACTION=1 \
 # Set working directory
 WORKDIR /app
 
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y curl git && rm -rf /var/lib/apt/lists/*
 
@@ -79,8 +82,6 @@ COPY backend/pyproject.toml backend/poetry.lock backend/LICENSE ./
 COPY backend/svc/ ./svc/
 COPY backend/email_html_template.html ./
 COPY backend/email_text_template.txt ./
-COPY backend/burgundydavidluckham-root-certificate.txt ./
-COPY backend/.env ./
 COPY backend/agentcatalog_index.json ./
 
 # Copy built frontend static files to the static directory
@@ -95,6 +96,8 @@ RUN chown -R appuser:appuser /app
 # Switch to non-root user
 USER appuser
 
+RUN echo "$CBCERT" >> /app/couchbase-root-cert.pem
+
 # Environment variables
 ENV PYTHONFAULTHANDLER=1 \
     PYTHONUNBUFFERED=1 \
@@ -102,7 +105,7 @@ ENV PYTHONFAULTHANDLER=1 \
     BIND=0.0.0.0:8000 \
     TIMEOUT=60 \
     KEEPALIVE=5 \
-    AGENT_CATALOG_CONN_ROOT_CERTIFICATE=/app/burgundydavidluckham-root-certificate.txt
+    AGENT_CATALOG_CONN_ROOT_CERTIFICATE=/app/couchbase-root-cert.pem
 
 # Configure git for agentc
 RUN git config --global user.email "bot@couchbase.com" && \
