@@ -27,6 +27,11 @@ RUN npm run build
 # Stage 2: Build Backend
 # ==========================================
 FROM python:3.13-slim AS backend-builder
+ARG CBCERT
+ARG AGENT_CATALOG_CONN_STRING
+ARG AGENT_CATALOG_USERNAME
+ARG AGENT_CATALOG_BUCKET
+ARG AGENT_CATALOG_CONN_ROOT_CERTIFICATE
 
 # Python environment variables
 ENV PYTHONFAULTHANDLER=1 \
@@ -109,8 +114,7 @@ RUN git config --global user.email "bot@couchbase.com" && \
     git config --global user.name "bot"
 
 # Initialize git repo and agentc (at build time)
-#RUN git init && git add . && git commit -m "Initial commit" &&     agentc init &&     PYTHONPATH=/app poetry run agentc index svc/prompts/ &&     PYTHONPATH=/app poetry run agentc index svc/tools/ &&     PYTHONPATH=/app poetry run agentc publish
-RUN cat "$CBCERT"
+RUN git init && git add . && git commit -m "Initial commit" &&     agentc init &&     PYTHONPATH=/app poetry run agentc index svc/prompts/ &&     PYTHONPATH=/app poetry run agentc index svc/tools/ 
 RUN echo "$CBCERT" >> /app/couchbase-root-cert.pem
 
 # Expose port
