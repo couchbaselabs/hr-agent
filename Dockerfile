@@ -80,7 +80,6 @@ COPY --from=backend-builder /usr/local/bin /usr/local/bin
 # Copy backend application code
 COPY backend/pyproject.toml backend/poetry.lock backend/LICENSE ./
 COPY backend/svc/ ./svc/
-COPY backend/.env ./.env
 COPY backend/email_html_template.html ./
 COPY backend/email_text_template.txt ./
 COPY backend/agentcatalog_index.json ./
