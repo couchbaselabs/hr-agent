@@ -499,7 +499,7 @@ Action Input: """
         print(f"Inbox: {inbox.inbox_id}")
         print(f"Webhook: {listener_url}/webhook/agentmail\n")
 
-        return inbox, listener
+        return inbox
 
     def generate_reply(sender_name, subject):
         """Generate auto-reply message using a template."""
