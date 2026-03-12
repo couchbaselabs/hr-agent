@@ -44,6 +44,11 @@ CAPELLA_API_EMBEDDING_MODEL = os.getenv("CAPELLA_API_EMBEDDING_MODEL")
 CAPELLA_API_LLM_KEY = os.getenv("CAPELLA_API_LLM_KEY")
 CAPELLA_API_LLM_MODEL = os.getenv("CAPELLA_API_LLM_MODEL", "deepseek-ai/DeepSeek-R1-Distill-Llama-8B")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_API")
+GOOGLE_MODEL   = os.getenv("GOOGLE_MODEL", "gemini-2.0-flash")
+# "openai" | "gemini" — runtime-switchable via /api/settings/ai-provider
+AI_PROVIDER    = os.getenv("AI_PROVIDER", "openai")
 
 # AgentMail configuration
 INBOX_USERNAME = os.getenv("INBOX_USERNAME", "hrbot")

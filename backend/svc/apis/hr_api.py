@@ -1178,6 +1178,23 @@ class HRAPI:
             raise HTTPException(status_code=500, detail=str(e))
 
     @staticmethod
+    def get_ai_provider(agent_manager: AgentManager):
+        from svc.core.config import OPENAI_MODEL, GOOGLE_MODEL
+        provider = agent_manager.ai_provider
+        model = GOOGLE_MODEL if provider == "gemini" else OPENAI_MODEL
+        return {"provider": provider, "model": model}
+
+    @staticmethod
+    def set_ai_provider(provider: str, agent_manager: AgentManager):
+        try:
+            return agent_manager.switch_provider(provider)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.exception(f"Error switching provider: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @staticmethod
     def get_auto_send(agent_manager: AgentManager):
         if agent_manager.couchbase_client is None:
             raise HTTPException(status_code=503, detail="Database not connected")

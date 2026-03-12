@@ -97,6 +97,11 @@ export interface AutoSendSettings {
   min_score: number;
 }
 
+export interface AIProviderSettings {
+  provider: 'openai' | 'gemini';
+  model?: string;
+}
+
 export interface Meeting {
   meeting_id: string;       // application:: key of the linked application
   start_time: string;
@@ -400,6 +405,22 @@ class HRAgentClient {
       { method: 'POST' }
     );
     if (!response.ok) throw new Error(`Failed to send email: ${response.statusText}`);
+    return response.json();
+  }
+
+  async getAIProvider(): Promise<AIProviderSettings> {
+    const response = await fetch(`${this.baseURL}/api/settings/ai-provider`);
+    if (!response.ok) throw new Error(`Failed to fetch AI provider: ${response.statusText}`);
+    return response.json();
+  }
+
+  async setAIProvider(provider: 'openai' | 'gemini'): Promise<AIProviderSettings> {
+    const response = await fetch(`${this.baseURL}/api/settings/ai-provider`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider }),
+    });
+    if (!response.ok) throw new Error(`Failed to switch provider: ${response.statusText}`);
     return response.json();
   }
 

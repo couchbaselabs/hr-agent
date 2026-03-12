@@ -1,5 +1,56 @@
+import { useState, useEffect } from "react";
 import { NavLink } from "@/components/NavLink";
-import { Search, Upload, Sparkles, Activity, FileText, CalendarDays } from "lucide-react";
+import { Search, Upload, Sparkles, Activity, FileText, CalendarDays, Loader2 } from "lucide-react";
+import { hrAgentClient, AIProviderSettings } from "@/api/hrAgentClient";
+
+function AIProviderToggle() {
+  const [settings, setSettings] = useState<AIProviderSettings | null>(null);
+  const [switching, setSwitching] = useState(false);
+
+  useEffect(() => {
+    hrAgentClient.getAIProvider()
+      .then(setSettings)
+      .catch(() => setSettings({ provider: "openai" }));
+  }, []);
+
+  const toggle = async () => {
+    if (!settings || switching) return;
+    const next = settings.provider === "openai" ? "gemini" : "openai";
+    setSwitching(true);
+    try {
+      const updated = await hrAgentClient.setAIProvider(next);
+      setSettings(updated);
+    } catch {
+      // revert on failure — keep current settings
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  if (!settings) return null;
+
+  const isGemini = settings.provider === "gemini";
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={switching}
+      title={`Active: ${settings.provider}${settings.model ? ` (${settings.model})` : ""}. Click to switch.`}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-xs font-medium transition-colors hover:bg-accent disabled:opacity-50"
+    >
+      {switching ? (
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      ) : isGemini ? (
+        <span className="text-blue-400 font-bold">✦</span>
+      ) : (
+        <span className="text-green-400 font-bold">⬡</span>
+      )}
+      <span className={isGemini ? "text-blue-400" : "text-green-400"}>
+        {isGemini ? "Gemini" : "OpenAI"}
+      </span>
+    </button>
+  );
+}
 
 export const Navigation = () => {
   return (
@@ -37,6 +88,7 @@ export const Navigation = () => {
               <Upload className="w-4 h-4" />
               <span>Upload Resumes</span>
             </NavLink>
+
             <NavLink
               to="/traces"
               className="flex items-center gap-2 px-4 py-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
@@ -64,6 +116,9 @@ export const Navigation = () => {
               <span>Meetings</span>
             </NavLink>
 
+            <div className="ml-2 pl-2 border-l border-border">
+              <AIProviderToggle />
+            </div>
           </div>
         </div>
       </div>

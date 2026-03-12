@@ -100,6 +100,12 @@ class PendingEmailResponse(BaseModel):
     message_id: Optional[str] = None
 
 
+class AIProviderSettings(BaseModel):
+    """Active AI provider and model."""
+    provider: str = "openai"   # "openai" | "gemini"
+    model: Optional[str] = None
+
+
 class AutoSendSettings(BaseModel):
     """Global toggle: auto-send agent emails when grade >= threshold."""
     enabled: bool = False

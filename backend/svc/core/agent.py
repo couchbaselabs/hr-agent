@@ -4,7 +4,6 @@ import json
 import uuid
 import threading
 from datetime import datetime
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 import openai
 from agentmail import AgentMail
 import ngrok
@@ -17,8 +16,15 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from svc.core.config import (
     DEFAULT_RESUME_DIR, AGENTMAIL_API_KEY, DEFAULT_AGENDA_COLLECTION, DEFAULT_BUCKET, DEFAULT_SCOPE, DEFAULT_COLLECTION, DEFAULT_INDEX,
     CAPELLA_API_ENDPOINT, CAPELLA_API_EMBEDDINGS_KEY, CAPELLA_API_EMBEDDING_MODEL, CAPELLA_API_LLM_KEY, CAPELLA_API_LLM_MODEL,
-    OPENAI_API_KEY, INBOX_USERNAME, PORT, WEBHOOK_DOMAIN, SERVER_URL
+    OPENAI_API_KEY, OPENAI_MODEL, GOOGLE_API_KEY, GOOGLE_MODEL, AI_PROVIDER,
+    INBOX_USERNAME, PORT, WEBHOOK_DOMAIN, SERVER_URL
 )
+
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+    _GEMINI_AVAILABLE = True
+except ImportError:
+    _GEMINI_AVAILABLE = False
 from svc.core.db import CouchbaseClient, get_collection, test_capella_connectivity
 from svc.core.timeslot_manager import (
     upsert_pending_email, get_auto_send_settings, mark_email_sent, get_agenda_collection,
@@ -58,6 +64,7 @@ class AgentManager:
         self.catalog = None
         self.root_span = None
         self.processed_messages = set()
+        self.ai_provider = AI_PROVIDER  # "openai" | "gemini", runtime-switchable
 
     def new_span(self, name: str, **kwargs):
         """Create an independent per-request span with its own session ID.
@@ -86,6 +93,45 @@ class AgentManager:
             return parent.new(name=name, **kwargs)
         return self.new_span(name=name, **kwargs)
 
+    def _build_agents(self):
+        """Rebuild both agent executors using the current self.llm."""
+        if self.catalog is None or self.embeddings is None or self.llm is None or self.couchbase_client is None:
+            logger.warning("⚠️ Cannot build agents — required components not ready")
+            return
+        try:
+            self.agent_executor = self.create_langchain_agent()
+            logger.info("✅ Recruiter agent rebuilt")
+        except Exception as e:
+            logger.error(f"❌ Failed to rebuild recruiter agent: {e}")
+            self.agent_executor = None
+        try:
+            self.email_agent_executor = self.create_langchain_email_agent()
+            logger.info("✅ Email agent rebuilt")
+        except Exception as e:
+            logger.error(f"❌ Failed to rebuild email agent: {e}")
+            self.email_agent_executor = None
+
+    def switch_provider(self, provider: str) -> dict:
+        """Switch the active AI provider and reinitialise the LLM.
+
+        Rebuilds only the LLM (not embeddings or agents) so the switch is fast.
+        Returns the new provider name and model.
+        """
+        if provider not in ("openai", "gemini"):
+            raise ValueError(f"Unknown provider '{provider}'. Choose 'openai' or 'gemini'.")
+        self.ai_provider = provider
+        try:
+            use_capella = test_capella_connectivity()
+            self.setup_ai_services(use_capella=use_capella)
+            # Rebuild agents with the new LLM
+            self._build_agents()
+            model = GOOGLE_MODEL if provider == "gemini" else OPENAI_MODEL
+            logger.info(f"✅ Switched AI provider to {provider} ({model})")
+            return {"provider": provider, "model": model}
+        except Exception as e:
+            logger.error(f"❌ Failed to switch provider: {e}")
+            raise
+
     @staticmethod
     def close_span(span) -> None:
         """Exit a request span and clear the thread-local reference."""
@@ -94,75 +140,100 @@ class AgentManager:
         _active_span.current = None
 
     def setup_ai_services(self, temperature: float = 0.0, use_capella: bool = True):
-        """Setup AI services with Capella AI (Priority 1) and OpenAI fallback."""
-        logger.info("🔧 Setting up AI services...")
+        """Setup AI services. Provider priority: Capella > self.ai_provider > fallback."""
+        logger.info(f"🔧 Setting up AI services (provider={self.ai_provider})...")
 
-        # Local variables - will be assigned to instance variables
         embeddings = None
         llm = None
 
-        # Priority 1: Capella AI with OpenAI wrappers
+        # ── Priority 1: Capella AI (OpenAI-compatible) ───────────────────────
         if use_capella and CAPELLA_API_ENDPOINT and CAPELLA_API_EMBEDDINGS_KEY:
             try:
-                endpoint = CAPELLA_API_ENDPOINT
-                api_key = CAPELLA_API_EMBEDDINGS_KEY
-                model = CAPELLA_API_EMBEDDING_MODEL
-
-                api_base = endpoint if endpoint.endswith('/v1') else f"{endpoint}/v1"
-
+                api_base = CAPELLA_API_ENDPOINT if CAPELLA_API_ENDPOINT.endswith('/v1') else f"{CAPELLA_API_ENDPOINT}/v1"
                 embeddings = OpenAIEmbeddings(
-                    model=model,
-                    api_key=api_key,
+                    model=CAPELLA_API_EMBEDDING_MODEL,
+                    api_key=CAPELLA_API_EMBEDDINGS_KEY,
                     base_url=api_base,
                     check_embedding_ctx_length=False,
                 )
                 logger.info("✅ Using Capella AI embeddings")
             except Exception as e:
                 logger.error(f"❌ Capella AI embeddings failed: {e}")
-                embeddings = None
 
         if use_capella and CAPELLA_API_ENDPOINT and CAPELLA_API_LLM_KEY:
             try:
-                endpoint = CAPELLA_API_ENDPOINT
-                llm_key = CAPELLA_API_LLM_KEY
-                llm_model = CAPELLA_API_LLM_MODEL
-
-                api_base = endpoint if endpoint.endswith('/v1') else f"{endpoint}/v1"
-
+                api_base = CAPELLA_API_ENDPOINT if CAPELLA_API_ENDPOINT.endswith('/v1') else f"{CAPELLA_API_ENDPOINT}/v1"
                 llm = ChatOpenAI(
-                    model=llm_model,
+                    model=CAPELLA_API_LLM_MODEL,
                     base_url=api_base,
-                    api_key=llm_key,
+                    api_key=CAPELLA_API_LLM_KEY,
                     temperature=temperature,
                 )
-                # Test the LLM
-                test_response = llm.invoke("Hello")
+                llm.invoke("Hello")
                 logger.info("✅ Using Capella AI LLM")
             except Exception as e:
                 logger.error(f"❌ Capella AI LLM failed: {e}")
                 llm = None
 
-        # Fallback: OpenAI
-        if embeddings is None and OPENAI_API_KEY:
-            try:
-                embeddings = OpenAIEmbeddings(
-                    model="text-embedding-3-small",
-                    api_key=OPENAI_API_KEY,
-                )
-                logger.info("✅ Using OpenAI embeddings fallback")
-            except Exception as e:
-                logger.error(f"⚠️ OpenAI embeddings failed: {e}")
+        # ── Priority 2: selected provider ────────────────────────────────────
+        if self.ai_provider == "gemini":
+            if embeddings is None and _GEMINI_AVAILABLE and GOOGLE_API_KEY:
+                try:
+                    embeddings = GoogleGenerativeAIEmbeddings(
+                        model="models/text-embedding-004",
+                        google_api_key=GOOGLE_API_KEY,
+                    )
+                    logger.info("✅ Using Gemini embeddings")
+                except Exception as e:
+                    logger.error(f"❌ Gemini embeddings failed: {e}")
 
-        if llm is None and OPENAI_API_KEY:
-            try:
-                llm = ChatOpenAI(
-                    model="gpt-4o",
-                    api_key=OPENAI_API_KEY,
-                    temperature=temperature,
-                )
-                logger.info("✅ Using OpenAI LLM fallback")
-            except Exception as e:
-                logger.error(f"⚠️ OpenAI LLM failed: {e}")
+            if llm is None and _GEMINI_AVAILABLE and GOOGLE_API_KEY:
+                try:
+                    llm = ChatGoogleGenerativeAI(
+                        model=GOOGLE_MODEL,
+                        google_api_key=GOOGLE_API_KEY,
+                        temperature=temperature,
+                    )
+                    logger.info(f"✅ Using Gemini LLM ({GOOGLE_MODEL})")
+                except Exception as e:
+                    logger.error(f"❌ Gemini LLM failed: {e}")
+        else:
+            # openai (default)
+            if embeddings is None and OPENAI_API_KEY:
+                try:
+                    embeddings = OpenAIEmbeddings(
+                        model="text-embedding-3-small",
+                        api_key=OPENAI_API_KEY,
+                    )
+                    logger.info("✅ Using OpenAI embeddings")
+                except Exception as e:
+                    logger.error(f"❌ OpenAI embeddings failed: {e}")
+
+            if llm is None and OPENAI_API_KEY:
+                try:
+                    llm = ChatOpenAI(
+                        model=OPENAI_MODEL,
+                        api_key=OPENAI_API_KEY,
+                        temperature=temperature,
+                    )
+                    logger.info(f"✅ Using OpenAI LLM ({OPENAI_MODEL})")
+                except Exception as e:
+                    logger.error(f"❌ OpenAI LLM failed: {e}")
+
+        # ── Fallback: try the other provider if primary failed ────────────────
+        if llm is None:
+            if self.ai_provider == "gemini" and OPENAI_API_KEY:
+                try:
+                    llm = ChatOpenAI(model=OPENAI_MODEL, api_key=OPENAI_API_KEY, temperature=temperature)
+                    logger.info("✅ Fell back to OpenAI LLM")
+                except Exception:
+                    pass
+            elif self.ai_provider == "openai" and _GEMINI_AVAILABLE and GOOGLE_API_KEY:
+                try:
+                    llm = ChatGoogleGenerativeAI(model=GOOGLE_MODEL, google_api_key=GOOGLE_API_KEY, temperature=temperature)
+                    logger.info("✅ Fell back to Gemini LLM")
+                except Exception:
+                    pass
 
         if embeddings is None:
             raise ValueError("❌ No embeddings service could be initialized")

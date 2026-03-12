@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 from svc.apis.hr_api import HRAPI
 from svc.core.agent import AgentManager
 from svc.core.db import CouchbaseClient
-from svc.models.models import HealthResponse, JobMatchRequest, JobMatchResponse, ResumeUploadResponse, CandidateResponse, InitialMeetingRequest, InitialMeetingResponse, ConversationGradeResponse, ApplicationResponse, MeetingResponse, PendingEmailResponse, AutoSendSettings
+from svc.models.models import HealthResponse, JobMatchRequest, JobMatchResponse, ResumeUploadResponse, CandidateResponse, InitialMeetingRequest, InitialMeetingResponse, ConversationGradeResponse, ApplicationResponse, MeetingResponse, PendingEmailResponse, AutoSendSettings, AIProviderSettings
 
 router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
@@ -180,6 +180,18 @@ async def send_pending_email(application_id: str, req: Request):
     """Send the pending email for an application via AgentMail."""
     agent = req.state.agent_manager
     return HRAPI.send_pending_email(application_id, agent)
+
+
+@router.get("/api/settings/ai-provider", response_model=AIProviderSettings)
+async def get_ai_provider(req: Request):
+    """Return the active AI provider and model."""
+    return HRAPI.get_ai_provider(req.state.agent_manager)
+
+
+@router.post("/api/settings/ai-provider", response_model=AIProviderSettings)
+async def set_ai_provider(req: Request, settings: AIProviderSettings):
+    """Switch the active AI provider. Rebuilds agents immediately."""
+    return HRAPI.set_ai_provider(settings.provider, req.state.agent_manager)
 
 
 @router.get("/api/settings/auto-send", response_model=AutoSendSettings)
