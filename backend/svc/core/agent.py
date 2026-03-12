@@ -875,6 +875,29 @@ Action Input: """
                 logger.info(f"Auto-reply sent to {sender_email}")
             else:
                 logger.info(f"Reply stored as pending for {sender_email} (application {application_id})")
+
+            # Grade the session in the background so the webhook returns immediately.
+            # We resolve the session_id from the span or from the application doc.
+            effective_session_id = (
+                getattr(span, "_session_id", None)
+                or trace_session_id
+                or (span.identifier.session if span else None)
+            )
+            if effective_session_id:
+                agent_ref = self
+                def _grade_in_background(sid: str):
+                    try:
+                        from svc.apis.hr_api import HRAPI
+                        HRAPI.grade_session(sid, agent_ref)
+                        logger.info(f"Background grading complete for session {sid}")
+                    except Exception as ge:
+                        logger.warning(f"Background grading failed for session {sid}: {ge}")
+                threading.Thread(
+                    target=_grade_in_background,
+                    args=(effective_session_id,),
+                    daemon=True,
+                ).start()
+
         except Exception as e:
             print(f"Error: {e}\n")
 

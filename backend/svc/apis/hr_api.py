@@ -1156,6 +1156,20 @@ class HRAPI:
 
             mark_email_sent(collection, application_id)
             logger.info(f"Pending email for {application_id} sent manually")
+
+            # Grade the session in the background now that the exchange is complete
+            app_doc = get_application(collection, _application_key(application_id))
+            session_id = app_doc.get("session_id") if app_doc else None
+            if session_id:
+                import threading as _threading
+                def _grade():
+                    try:
+                        HRAPI.grade_session(session_id, agent_manager)
+                        logger.info(f"Background grading complete for session {session_id}")
+                    except Exception as ge:
+                        logger.warning(f"Background grading failed: {ge}")
+                _threading.Thread(target=_grade, daemon=True).start()
+
             return {"status": "sent"}
         except HTTPException:
             raise
