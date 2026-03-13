@@ -25,7 +25,7 @@ from svc.core.timeslot_manager import (
     upsert_pending_email, get_pending_email, mark_email_sent, update_pending_email_text,
     get_auto_send_settings, upsert_auto_send_settings, get_latest_assistant_text,
 )
-from svc.models.models import HealthResponse, JobMatchRequest, JobMatchResponse, ResumeUploadResponse, CandidateResponse, InitialMeetingRequest, InitialMeetingResponse
+from svc.models.models import HealthResponse, JobMatchRequest, JobMatchResponse, ResumeUploadResponse, GenerateResumeRequest, CandidateResponse, InitialMeetingRequest, InitialMeetingResponse
 from svc.data.resume_loader import extract_text_from_pdf, analyze_resume_with_llm, format_candidate_for_embedding
 from svc.tools.search_candidates_vector import search_candidates_vector
 from langchain_couchbase.vectorstores import CouchbaseVectorStore
@@ -598,23 +598,170 @@ class HRAPI:
             raise HTTPException(status_code=500, detail=str(e))
 
     @staticmethod
-    async def process_resume_background(file_path: Path, filename: str, agent_manager: AgentManager, span=None):
-        """Background task to process uploaded resume."""
+    async def generate_resume(request: GenerateResumeRequest, background_tasks: BackgroundTasks, agent_manager: AgentManager) -> ResumeUploadResponse:
+        """Generate a random resume PDF and queue it for processing."""
+        import random
+        from svc.resume_generator import generate_resume as _gen, build_pdf, PROFILES, TEMPLATES
+
+        rng = random.Random()
+        profile = request.profile if request.profile in PROFILES else rng.choice(list(PROFILES.keys()))
+        template = request.template if request.template in TEMPLATES else rng.choice(list(TEMPLATES))
+
+        resume = _gen(rng=rng, profile=profile, template=template)
+
+        # Apply caller-supplied overrides
+        if request.first_name or request.last_name:
+            first = request.first_name or resume.name.split()[0]
+            last = request.last_name or (resume.name.split()[1] if len(resume.name.split()) > 1 else "")
+            resume.name = f"{first} {last}".strip()
+        if request.email:
+            resume.email = request.email
+
+        # Use the LLM to enrich the resume when extra instructions are provided
+        if request.instructions and agent_manager.llm is not None:
+            import json as _json
+            _prompt = f"""You are helping generate a realistic fictional resume. A base resume has been randomly generated.
+Your task: rewrite and enrich the resume fields to match the following instructions as closely as possible.
+
+Instructions: {request.instructions}
+
+Current resume (JSON):
+{{
+  "name": "{resume.name}",
+  "title": "{resume.title}",
+  "location": "{resume.location}",
+  "summary": "{resume.summary}",
+  "skills": {_json.dumps(resume.skills)},
+  "experience": {_json.dumps(resume.experience)},
+  "education": {_json.dumps(resume.education)},
+  "projects": {_json.dumps(resume.projects)},
+  "certifications": {_json.dumps(resume.certifications)}
+}}
+
+Return ONLY valid JSON with the same keys. Adjust years of experience, job titles, companies, skills, summary, and projects to reflect the instructions. Keep the structure identical. Do not add or remove keys.
+"""
+            try:
+                _response = agent_manager.llm.invoke(_prompt)
+                _content = _response.content.strip()
+                if "```json" in _content:
+                    _content = _content.split("```json")[1].split("```")[0]
+                elif "```" in _content:
+                    _content = _content.split("```")[1].split("```")[0]
+                _start = _content.find("{")
+                _end = _content.rfind("}")
+                if _start != -1 and _end != -1:
+                    _enriched = _json.loads(_content[_start:_end + 1])
+                    resume.title = _enriched.get("title", resume.title)
+                    resume.location = _enriched.get("location", resume.location)
+                    resume.summary = _enriched.get("summary", resume.summary)
+                    resume.skills = _enriched.get("skills", resume.skills)
+                    resume.experience = _enriched.get("experience", resume.experience)
+                    resume.education = _enriched.get("education", resume.education)
+                    resume.projects = _enriched.get("projects", resume.projects)
+                    resume.certifications = _enriched.get("certifications", resume.certifications)
+                    logger.info(f"✅ LLM enriched resume for {resume.name}")
+            except Exception as _e:
+                logger.warning(f"⚠️ LLM enrichment failed, using base resume: {_e}")
+
+        safe_name = resume.name.replace(" ", "_")
+        filename = f"{safe_name}_{profile}.pdf"
+
+        resume_dir = Path(DEFAULT_RESUME_DIR)
+        resume_dir.mkdir(exist_ok=True)
+        file_path = resume_dir / filename
+
+        try:
+            build_pdf(resume, str(file_path), template=template)
+        except Exception as e:
+            logger.exception(f"❌ Error generating resume PDF: {e}")
+            raise HTTPException(status_code=500, detail=f"PDF generation failed: {e}")
+
+        logger.info(f"📄 Generated resume: {filename}")
+
+        span = agent_manager.new_span("generate_resume", filename=filename)
+        if span:
+            span.enter()
+            span.log(UserContent(value=f"Generated resume: {filename} ({profile}/{template})"))
+
+        # Build analysis directly from the Resume dataclass — richer and more reliable
+        # than re-extracting text from the generated PDF.
+        import json as _json2
+        _skills_flat = [s for skills in resume.skills.values() for s in skills]
+        _exp_text = " | ".join(
+            f"{e.get('title','')} at {e.get('company','')} ({e.get('duration','')})"
+            for e in resume.experience
+        )
+        _edu_text = " | ".join(
+            f"{e.get('degree','')} from {e.get('school','')}" for e in resume.education
+        )
+        pre_analyzed = {
+            "name": resume.name,
+            "email": resume.email,
+            "phone": resume.phone,
+            "location": resume.location,
+            "years_experience": sum(
+                int(w) for e in resume.experience
+                for w in str(e.get("duration", "")).split()
+                if w.isdigit()
+            ) or len(resume.experience) * 2,
+            "skills": _skills_flat,
+            "technical_skills": resume.skills.get("Languages", []) + resume.skills.get("Frameworks", []),
+            "soft_skills": [],
+            "experience": _exp_text,
+            "education": _edu_text,
+            "summary": resume.summary,
+            "work_history": [
+                {
+                    "company": e.get("company", ""),
+                    "title": e.get("title", ""),
+                    "duration": e.get("duration", ""),
+                    "description": " ".join(e.get("bullets", [])),
+                }
+                for e in resume.experience
+            ],
+            "filename": filename,
+            "profile": profile,
+        }
+
+        background_tasks.add_task(
+            HRAPI.process_resume_background,
+            file_path,
+            filename,
+            agent_manager,
+            span,
+            pre_analyzed,
+        )
+
+        return ResumeUploadResponse(
+            success=True,
+            message=f"Resume generated for {resume.name} and queued for processing",
+            filename=filename,
+            candidate_name=resume.name,
+        )
+
+    @staticmethod
+    async def process_resume_background(file_path: Path, filename: str, agent_manager: AgentManager, span=None, pre_analyzed: dict = None):
+        """Background task to process an uploaded or generated resume."""
         try:
             logger.info(f"🔄 Processing resume in background: {filename}")
 
-            # Extract text
-            text = extract_text_from_pdf(str(file_path))
-            if not text.strip():
-                logger.warning(f"No text extracted from {filename}")
-                if span:
-                    span.log(AssistantContent(value=f"No text extracted from {filename}"))
-                    AgentManager.close_span(span)
-                return
+            if pre_analyzed is not None:
+                # Generated resume: use the pre-built analysis directly, skip PDF extraction.
+                analysis = pre_analyzed
+                analysis["filename"] = filename
+                logger.info(f"📋 Using pre-analyzed data for {filename}")
+            else:
+                # Uploaded resume: extract text from PDF then analyze with LLM.
+                text = extract_text_from_pdf(str(file_path))
+                if not text.strip():
+                    logger.warning(f"No text extracted from {filename}")
+                    if span:
+                        span.log(AssistantContent(value=f"No text extracted from {filename}"))
+                        AgentManager.close_span(span)
+                    return
 
-            # Analyze with LLM
-            analysis = analyze_resume_with_llm(text, agent_manager.llm)
-            analysis["filename"] = filename
+                analysis = analyze_resume_with_llm(text, agent_manager.llm)
+                analysis["filename"] = filename
 
             # Format for embedding
             formatted_text = format_candidate_for_embedding(analysis)

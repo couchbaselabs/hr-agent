@@ -111,27 +111,6 @@ class AgentManager:
             logger.error(f"❌ Failed to rebuild email agent: {e}")
             self.email_agent_executor = None
 
-    def switch_provider(self, provider: str) -> dict:
-        """Switch the active AI provider and reinitialise the LLM.
-
-        Rebuilds only the LLM (not embeddings or agents) so the switch is fast.
-        Returns the new provider name and model.
-        """
-        if provider not in ("openai", "gemini"):
-            raise ValueError(f"Unknown provider '{provider}'. Choose 'openai' or 'gemini'.")
-        self.ai_provider = provider
-        try:
-            use_capella = test_capella_connectivity()
-            self.setup_ai_services(use_capella=use_capella)
-            # Rebuild agents with the new LLM
-            self._build_agents()
-            model = GOOGLE_MODEL if provider == "gemini" else OPENAI_MODEL
-            logger.info(f"✅ Switched AI provider to {provider} ({model})")
-            return {"provider": provider, "model": model}
-        except Exception as e:
-            logger.error(f"❌ Failed to switch provider: {e}")
-            raise
-
     @staticmethod
     def close_span(span) -> None:
         """Exit a request span and clear the thread-local reference."""
@@ -178,14 +157,26 @@ class AgentManager:
         # ── Priority 2: selected provider ────────────────────────────────────
         if self.ai_provider == "gemini":
             if embeddings is None and _GEMINI_AVAILABLE and GOOGLE_API_KEY:
-                try:
-                    embeddings = GoogleGenerativeAIEmbeddings(
-                        model="models/text-embedding-004",
-                        google_api_key=GOOGLE_API_KEY,
-                    )
-                    logger.info("✅ Using Gemini embeddings")
-                except Exception as e:
-                    logger.error(f"❌ Gemini embeddings failed: {e}")
+                # Models available on the v1beta API (what langchain-google-genai 2.x uses).
+                # text-embedding-004 was moved to v1 only and is no longer on v1beta.
+                _embedding_candidates = [
+                    "models/gemini-embedding-001",
+                    "models/gemini-embedding-2-preview",
+                ]
+                for _model in _embedding_candidates:
+                    try:
+                        embeddings = GoogleGenerativeAIEmbeddings(
+                            model=_model,
+                            google_api_key=GOOGLE_API_KEY,
+                        )
+                        embeddings.embed_query("test")
+                        logger.info(f"✅ Using Gemini embeddings ({_model})")
+                        break
+                    except Exception as e:
+                        logger.warning(f"⚠️ Gemini embeddings ({_model}) failed: {e}")
+                        embeddings = None
+                if embeddings is None:
+                    logger.error("❌ All Gemini embedding models failed")
 
             if llm is None and _GEMINI_AVAILABLE and GOOGLE_API_KEY:
                 try:
@@ -193,6 +184,11 @@ class AgentManager:
                         model=GOOGLE_MODEL,
                         google_api_key=GOOGLE_API_KEY,
                         temperature=temperature,
+                        # Allow enough retries and time to absorb 429 quota resets.
+                        # The free-tier retry_delay is typically 52-60s; with max_retries=6
+                        # and exponential backoff the total window is ~3 minutes.
+                        max_retries=6,
+                        request_timeout=120,
                     )
                     logger.info(f"✅ Using Gemini LLM ({GOOGLE_MODEL})")
                 except Exception as e:
@@ -208,6 +204,18 @@ class AgentManager:
                     logger.info("✅ Using OpenAI embeddings")
                 except Exception as e:
                     logger.error(f"❌ OpenAI embeddings failed: {e}")
+
+            # If OpenAI embeddings unavailable, try Gemini even when provider=openai
+            if embeddings is None and _GEMINI_AVAILABLE and GOOGLE_API_KEY:
+                for _model in ["models/gemini-embedding-001", "models/gemini-embedding-2-preview"]:
+                    try:
+                        embeddings = GoogleGenerativeAIEmbeddings(model=_model, google_api_key=GOOGLE_API_KEY)
+                        embeddings.embed_query("test")
+                        logger.info(f"✅ Using Gemini embeddings ({_model}) as OpenAI fallback")
+                        break
+                    except Exception as e:
+                        logger.warning(f"⚠️ Gemini embeddings ({_model}) failed: {e}")
+                        embeddings = None
 
             if llm is None and OPENAI_API_KEY:
                 try:
@@ -230,10 +238,31 @@ class AgentManager:
                     pass
             elif self.ai_provider == "openai" and _GEMINI_AVAILABLE and GOOGLE_API_KEY:
                 try:
-                    llm = ChatGoogleGenerativeAI(model=GOOGLE_MODEL, google_api_key=GOOGLE_API_KEY, temperature=temperature)
+                    llm = ChatGoogleGenerativeAI(
+                        model=GOOGLE_MODEL, google_api_key=GOOGLE_API_KEY,
+                        temperature=temperature, max_retries=6, request_timeout=120,
+                    )
                     logger.info("✅ Fell back to Gemini LLM")
                 except Exception:
                     pass
+
+        if embeddings is None and OPENAI_API_KEY:
+            try:
+                embeddings = OpenAIEmbeddings(model="text-embedding-3-small", api_key=OPENAI_API_KEY)
+                logger.info("✅ Fell back to OpenAI embeddings")
+            except Exception as e:
+                logger.error(f"❌ OpenAI embeddings fallback failed: {e}")
+
+        if embeddings is None and _GEMINI_AVAILABLE and GOOGLE_API_KEY:
+            for _model in ["models/gemini-embedding-001", "models/gemini-embedding-2-preview"]:
+                try:
+                    embeddings = GoogleGenerativeAIEmbeddings(model=_model, google_api_key=GOOGLE_API_KEY)
+                    embeddings.embed_query("test")
+                    logger.info(f"✅ Fell back to Gemini embeddings ({_model})")
+                    break
+                except Exception as e:
+                    logger.warning(f"⚠️ Gemini embeddings fallback ({_model}) failed: {e}")
+                    embeddings = None
 
         if embeddings is None:
             raise ValueError("❌ No embeddings service could be initialized")

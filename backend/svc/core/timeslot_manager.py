@@ -290,6 +290,48 @@ def upsert_auto_send_settings(collection: Collection, enabled: bool, min_score: 
     return doc
 
 
+def delete_application(cluster, application_id: str) -> bool:
+    """
+    Remove an application document and its linked pending_email doc (if any).
+    Returns True if the application doc was found and removed.
+    """
+    collection = get_agenda_collection(cluster)
+    if collection is None:
+        return False
+    removed = False
+    try:
+        collection.remove(_application_key(application_id))
+        removed = True
+    except Exception:
+        pass
+    # Best-effort cleanup of pending email
+    try:
+        collection.remove(_pending_email_key(application_id))
+    except Exception:
+        pass
+    return removed
+
+
+def delete_meeting(cluster, start_time_iso: str, end_time_iso: str) -> bool:
+    """
+    Remove a booked timeslot from its month calendar document.
+    Delegates to the existing delete_timeslot helper which uses subdoc removal.
+    """
+    from svc.core.config import DEFAULT_COLLECTION
+    try:
+        start_dt = datetime.fromisoformat(start_time_iso)
+        end_dt = datetime.fromisoformat(end_time_iso)
+    except ValueError:
+        return False
+
+    bucket = cluster.bucket(
+        __import__("os").getenv("CB_BUCKET", "default")
+    )
+    from svc.core.config import DEFAULT_SCOPE, DEFAULT_COLLECTION
+    scope = bucket.scope(DEFAULT_SCOPE)
+    return delete_timeslot(start_dt, end_dt, scope, DEFAULT_COLLECTION)
+
+
 def list_applications(cluster: Cluster) -> list[Dict[str, Any]]:
     """Return all application documents, newest first."""
     from svc.core.config import DEFAULT_BUCKET

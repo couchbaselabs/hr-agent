@@ -1,18 +1,61 @@
 import { useState } from "react";
 import { Navigation } from "@/components/Navigation";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, FileText, X, Code, Eye, EyeOff } from "lucide-react";
+import { FileText, X, Code, EyeOff, Wand2, ChevronDown, ChevronUp } from "lucide-react";
 import { FileUpload } from "@/components/FileUpload";
 import { useUploadResume } from "@/hooks/useHRAgent";
 import { ConditionalWebSocketLogs } from "@/components/ConditionalWebSocketLogs";
 import { ResumeUploadInfo } from "@/components/BackendInfo";
+import { hrAgentClient } from "@/api/hrAgentClient";
+
+const PROFILES = ["backend","frontend","fullstack","sre","devops","data","ml","security","mobile","platform","analytics","ai","dx"];
+const TEMPLATES = ["classic","sidebar","modern","clean","split"];
 
 const UploadResumes = () => {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [showBackendInfo, setShowBackendInfo] = useState(false);
   const { toast } = useToast();
+
+  // Generate resume state
+  const [showGenerate, setShowGenerate] = useState(false);
+  const [genFirstName, setGenFirstName] = useState("");
+  const [genLastName, setGenLastName] = useState("");
+  const [genEmail, setGenEmail] = useState("");
+  const [genProfile, setGenProfile] = useState("");
+  const [genTemplate, setGenTemplate] = useState("");
+  const [genInstructions, setGenInstructions] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const handleGenerate = async () => {
+    setIsGenerating(true);
+    try {
+      const result = await hrAgentClient.generateResume({
+        first_name: genFirstName || undefined,
+        last_name: genLastName || undefined,
+        email: genEmail || undefined,
+        profile: genProfile || undefined,
+        template: genTemplate || undefined,
+        instructions: genInstructions || undefined,
+      });
+      toast({
+        title: "Resume generated",
+        description: result.message,
+      });
+      // Reset form
+      setGenFirstName(""); setGenLastName(""); setGenEmail("");
+      setGenProfile(""); setGenTemplate(""); setGenInstructions("");
+      setShowGenerate(false);
+    } catch (e) {
+      toast({ title: "Generation failed", description: String(e), variant: "destructive" });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   // Initialize the useUploadResume hook
   const { mutate: uploadResume, isPending: isUploadingResume } = useUploadResume();
@@ -95,6 +138,83 @@ const UploadResumes = () => {
               <ResumeUploadInfo />
             </div>
           )}
+
+          {/* Generate Resume */}
+          <div className="rounded-lg border border-border bg-card">
+            <button
+              className="w-full flex items-center justify-between px-4 py-3 text-left"
+              onClick={() => setShowGenerate(v => !v)}
+            >
+              <span className="flex items-center gap-2 font-medium text-foreground">
+                <Wand2 className="w-4 h-4" />
+                Generate a random resume
+              </span>
+              {showGenerate ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+            </button>
+
+            {showGenerate && (
+              <div className="px-4 pb-4 border-t border-border space-y-4 pt-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="gen-first">First name</Label>
+                    <Input id="gen-first" placeholder="Random" value={genFirstName} onChange={e => setGenFirstName(e.target.value)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="gen-last">Last name</Label>
+                    <Input id="gen-last" placeholder="Random" value={genLastName} onChange={e => setGenLastName(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="gen-email">Email</Label>
+                  <Input id="gen-email" type="email" placeholder="Random" value={genEmail} onChange={e => setGenEmail(e.target.value)} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="gen-profile">Profile</Label>
+                    <select
+                      id="gen-profile"
+                      value={genProfile}
+                      onChange={e => setGenProfile(e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="">Random</option>
+                      {PROFILES.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="gen-template">Template</Label>
+                    <select
+                      id="gen-template"
+                      value={genTemplate}
+                      onChange={e => setGenTemplate(e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="">Random</option>
+                      {TEMPLATES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="gen-instructions">Extra instructions</Label>
+                  <Textarea
+                    id="gen-instructions"
+                    placeholder="e.g. 10 years of experience, focus on Kubernetes and Go…"
+                    rows={2}
+                    value={genInstructions}
+                    onChange={e => setGenInstructions(e.target.value)}
+                  />
+                </div>
+
+                <Button onClick={handleGenerate} disabled={isGenerating} className="w-full">
+                  <Wand2 className="w-4 h-4 mr-2" />
+                  {isGenerating ? "Generating…" : "Generate & process"}
+                </Button>
+              </div>
+            )}
+          </div>
 
           {/* Upload Area */}
           <FileUpload onFileSelect={(file) => setSelectedFiles(prev => [...prev, file])} />

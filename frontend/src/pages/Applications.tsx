@@ -5,11 +5,22 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   hrAgentClient, Application, PendingEmail, AutoSendSettings, ConversationGrade,
 } from "@/api/hrAgentClient";
 import {
   RefreshCw, User, Briefcase, Mail, Clock, Send, Loader2, Zap, ZapOff,
   ClipboardList, CheckCircle, AlertTriangle, XCircle, Star, ChevronDown, ChevronUp,
+  Trash2,
 } from "lucide-react";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -229,7 +240,15 @@ function PendingEmailPanel({ applicationId, onSent }: { applicationId: string; o
 
 // ─── Application card ─────────────────────────────────────────────────────────
 
-function ApplicationCard({ app, onEmailSent }: { app: Application; onEmailSent: () => void }) {
+function ApplicationCard({
+  app,
+  onEmailSent,
+  onDeleteRequest,
+}: {
+  app: Application;
+  onEmailSent: () => void;
+  onDeleteRequest: (app: Application) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [grade, setGrade] = useState<ConversationGrade | null>(null);
 
@@ -274,6 +293,15 @@ function ApplicationCard({ app, onEmailSent }: { app: Application; onEmailSent: 
               <div className="mt-0.5 text-muted-foreground/60">email sent {formatTs(app.email_sent_at)}</div>
             )}
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+            onClick={(e) => { e.stopPropagation(); onDeleteRequest(app); }}
+            title="Delete application"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
           {expanded
             ? <ChevronUp className="w-4 h-4 text-muted-foreground mt-0.5" />
             : <ChevronDown className="w-4 h-4 text-muted-foreground mt-0.5" />}
@@ -345,6 +373,8 @@ const Applications = () => {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Application | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchApplications = useCallback(async () => {
     setLoading(true); setError(null);
@@ -354,6 +384,20 @@ const Applications = () => {
   }, []);
 
   useEffect(() => { fetchApplications(); }, [fetchApplications]);
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await hrAgentClient.deleteApplication(deleteTarget.id);
+      setApplications((prev) => prev.filter((a) => a.id !== deleteTarget.id));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -392,12 +436,46 @@ const Applications = () => {
           <ScrollArea className="h-[calc(100vh-200px)]">
             <div className="space-y-3 pr-2">
               {applications.map((app) => (
-                <ApplicationCard key={app.id} app={app} onEmailSent={fetchApplications} />
+                <ApplicationCard
+                  key={app.id}
+                  app={app}
+                  onEmailSent={fetchApplications}
+                  onDeleteRequest={setDeleteTarget}
+                />
               ))}
             </div>
           </ScrollArea>
         )}
       </div>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete application?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove the application for{" "}
+              <span className="font-medium text-foreground">
+                {deleteTarget
+                  ? deleteTarget.full_name ||
+                    [deleteTarget.first_name, deleteTarget.last_name].filter(Boolean).join(" ") ||
+                    deleteTarget.email
+                  : ""}
+              </span>{" "}
+              and any associated pending email. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Deleting…</> : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

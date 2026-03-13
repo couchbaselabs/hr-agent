@@ -43,6 +43,16 @@ class ResumeUploadResponse(BaseModel):
     filename: str
     candidate_name: Optional[str] = None
 
+
+class GenerateResumeRequest(BaseModel):
+    """Parameters for generating a random resume PDF."""
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    profile: Optional[str] = None   # backend|frontend|fullstack|sre|devops|data|ml|security|mobile|platform|analytics|ai|dx
+    template: Optional[str] = None  # classic|sidebar|modern|clean|split
+    instructions: Optional[str] = None  # freeform notes passed as extra context (stored in summary prefix)
+
 class ErrorResponse(BaseModel):
     """Error response model."""
     error: str
@@ -98,12 +108,6 @@ class PendingEmailResponse(BaseModel):
     sent_at: Optional[str] = None
     inbox_id: Optional[str] = None
     message_id: Optional[str] = None
-
-
-class AIProviderSettings(BaseModel):
-    """Active AI provider and model."""
-    provider: str = "openai"   # "openai" | "gemini"
-    model: Optional[str] = None
 
 
 class AutoSendSettings(BaseModel):

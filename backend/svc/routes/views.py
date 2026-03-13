@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 from svc.apis.hr_api import HRAPI
 from svc.core.agent import AgentManager
 from svc.core.db import CouchbaseClient
-from svc.models.models import HealthResponse, JobMatchRequest, JobMatchResponse, ResumeUploadResponse, CandidateResponse, InitialMeetingRequest, InitialMeetingResponse, ConversationGradeResponse, ApplicationResponse, MeetingResponse, PendingEmailResponse, AutoSendSettings, AIProviderSettings
+from svc.models.models import HealthResponse, JobMatchRequest, JobMatchResponse, ResumeUploadResponse, GenerateResumeRequest, CandidateResponse, InitialMeetingRequest, InitialMeetingResponse, ConversationGradeResponse, ApplicationResponse, MeetingResponse, PendingEmailResponse, AutoSendSettings
 
 router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
@@ -55,6 +55,13 @@ async def match_candidates(req: Request, request: JobMatchRequest):
     """
     agent = req.state.agent_manager
     return HRAPI.match_candidates(request, agent)
+
+@router.post("/api/generate-resume", response_model=ResumeUploadResponse)
+async def generate_resume(req: Request, background_tasks: BackgroundTasks, request: GenerateResumeRequest):
+    """Generate a random resume PDF and queue it for processing."""
+    agent = req.state.agent_manager
+    return await HRAPI.generate_resume(request, background_tasks, agent)
+
 
 @router.post("/api/upload-resume", response_model=ResumeUploadResponse)
 async def upload_resume(
@@ -160,6 +167,20 @@ async def grade_application(application_id: str, req: Request):
     return HRAPI.grade_application(application_id, agent)
 
 
+@router.delete("/api/applications/{application_id}")
+async def delete_application(application_id: str, req: Request):
+    """Delete an application and its associated pending email."""
+    agent = req.state.agent_manager
+    return HRAPI.delete_application(application_id, agent)
+
+
+@router.delete("/api/meetings")
+async def delete_meeting(start_time: str, end_time: str, req: Request):
+    """Delete a meeting timeslot. Pass start_time and end_time as ISO 8601 query params."""
+    agent = req.state.agent_manager
+    return HRAPI.delete_meeting(start_time, end_time, agent)
+
+
 @router.get("/api/applications/{application_id}/pending-email", response_model=PendingEmailResponse)
 async def get_pending_email(application_id: str, req: Request):
     """Return the pending (unsent) email for an application, if any."""
@@ -181,17 +202,6 @@ async def send_pending_email(application_id: str, req: Request):
     agent = req.state.agent_manager
     return HRAPI.send_pending_email(application_id, agent)
 
-
-@router.get("/api/settings/ai-provider", response_model=AIProviderSettings)
-async def get_ai_provider(req: Request):
-    """Return the active AI provider and model."""
-    return HRAPI.get_ai_provider(req.state.agent_manager)
-
-
-@router.post("/api/settings/ai-provider", response_model=AIProviderSettings)
-async def set_ai_provider(req: Request, settings: AIProviderSettings):
-    """Switch the active AI provider. Rebuilds agents immediately."""
-    return HRAPI.set_ai_provider(settings.provider, req.state.agent_manager)
 
 
 @router.get("/api/settings/auto-send", response_model=AutoSendSettings)

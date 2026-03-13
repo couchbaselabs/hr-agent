@@ -344,7 +344,7 @@ const TraceDashboard = () => {
   // per-log grades keyed by log identifier
   const [logGrades, setLogGrades]       = useState<Record<string, ConversationGrade>>({});
   const [gradingLog, setGradingLog]     = useState<string | null>(null);
-  const [selectedDate, setSelectedDate]       = useState<string>("");  // YYYY-MM-DD or ""
+  const [selectedDate, setSelectedDate]       = useState<string>(new Date().toISOString().slice(0, 10));  // YYYY-MM-DD, defaults to today
   const [sessionFilter, setSessionFilter]     = useState<string>("");  // partial or full session ID
   const [sessionFilterInput, setSessionFilterInput] = useState<string>(""); // debounced input
 

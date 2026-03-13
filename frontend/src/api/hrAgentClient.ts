@@ -97,11 +97,6 @@ export interface AutoSendSettings {
   min_score: number;
 }
 
-export interface AIProviderSettings {
-  provider: 'openai' | 'gemini';
-  model?: string;
-}
-
 export interface Meeting {
   meeting_id: string;       // application:: key of the linked application
   start_time: string;
@@ -274,6 +269,26 @@ class HRAgentClient {
   /**
    * Upload a resume PDF for processing
    */
+  async generateResume(params: {
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    profile?: string;
+    template?: string;
+    instructions?: string;
+  }): Promise<ResumeUploadResponse> {
+    const response = await fetch(`${this.baseURL}/api/generate-resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(error.detail || error.error || 'Failed to generate resume');
+    }
+    return response.json();
+  }
+
   async uploadResume(file: File): Promise<ResumeUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -384,6 +399,20 @@ class HRAgentClient {
     return response.json();
   }
 
+  async deleteApplication(applicationId: string): Promise<void> {
+    const response = await fetch(
+      `${this.baseURL}/api/applications/${encodeURIComponent(applicationId)}`,
+      { method: 'DELETE' }
+    );
+    if (!response.ok) throw new Error(`Failed to delete application: ${response.statusText}`);
+  }
+
+  async deleteMeeting(startTime: string, endTime: string): Promise<void> {
+    const params = new URLSearchParams({ start_time: startTime, end_time: endTime });
+    const response = await fetch(`${this.baseURL}/api/meetings?${params}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error(`Failed to delete meeting: ${response.statusText}`);
+  }
+
   async getPendingEmail(applicationId: string): Promise<PendingEmail> {
     const response = await fetch(`${this.baseURL}/api/applications/${encodeURIComponent(applicationId)}/pending-email`);
     if (!response.ok) throw new Error(`${response.status}`);
@@ -405,22 +434,6 @@ class HRAgentClient {
       { method: 'POST' }
     );
     if (!response.ok) throw new Error(`Failed to send email: ${response.statusText}`);
-    return response.json();
-  }
-
-  async getAIProvider(): Promise<AIProviderSettings> {
-    const response = await fetch(`${this.baseURL}/api/settings/ai-provider`);
-    if (!response.ok) throw new Error(`Failed to fetch AI provider: ${response.statusText}`);
-    return response.json();
-  }
-
-  async setAIProvider(provider: 'openai' | 'gemini'): Promise<AIProviderSettings> {
-    const response = await fetch(`${this.baseURL}/api/settings/ai-provider`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider }),
-    });
-    if (!response.ok) throw new Error(`Failed to switch provider: ${response.statusText}`);
     return response.json();
   }
 

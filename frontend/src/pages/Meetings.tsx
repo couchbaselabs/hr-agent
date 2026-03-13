@@ -4,8 +4,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { hrAgentClient, Meeting } from "@/api/hrAgentClient";
-import { RefreshCw, CalendarDays, Clock, Timer } from "lucide-react";
+import { RefreshCw, CalendarDays, Clock, Timer, Trash2, Loader2 } from "lucide-react";
 
 function formatDatetime(iso: string) {
   try {
@@ -45,6 +55,8 @@ const Meetings = () => {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Meeting | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchMeetings = useCallback(async () => {
     setLoading(true);
@@ -60,6 +72,22 @@ const Meetings = () => {
   }, []);
 
   useEffect(() => { fetchMeetings(); }, [fetchMeetings]);
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await hrAgentClient.deleteMeeting(deleteTarget.start_time, deleteTarget.end_time);
+      setMeetings((prev) =>
+        prev.filter((m) => !(m.start_time === deleteTarget.start_time && m.end_time === deleteTarget.end_time))
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  };
 
   const upcoming = meetings.filter((m) => isUpcoming(m.start_time));
   const past = meetings.filter((m) => !isUpcoming(m.start_time));
@@ -109,7 +137,7 @@ const Meetings = () => {
                   </h2>
                   <div className="space-y-3">
                     {upcoming.map((m, i) => (
-                      <MeetingCard key={`${m.meeting_id}-${i}`} meeting={m} />
+                      <MeetingCard key={`${m.meeting_id}-${i}`} meeting={m} onDeleteRequest={setDeleteTarget} />
                     ))}
                   </div>
                 </section>
@@ -121,7 +149,7 @@ const Meetings = () => {
                   </h2>
                   <div className="space-y-3 opacity-60">
                     {past.map((m, i) => (
-                      <MeetingCard key={`${m.meeting_id}-${i}`} meeting={m} />
+                      <MeetingCard key={`${m.meeting_id}-${i}`} meeting={m} onDeleteRequest={setDeleteTarget} />
                     ))}
                   </div>
                 </section>
@@ -130,11 +158,36 @@ const Meetings = () => {
           </ScrollArea>
         )}
       </div>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete meeting?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove the meeting scheduled for{" "}
+              <span className="font-medium text-foreground">
+                {deleteTarget ? formatDatetime(deleteTarget.start_time) : ""}
+              </span>
+              . This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Deleting…</> : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
 
-function MeetingCard({ meeting }: { meeting: Meeting }) {
+function MeetingCard({ meeting, onDeleteRequest }: { meeting: Meeting; onDeleteRequest: (m: Meeting) => void }) {
   const upcoming = isUpcoming(meeting.start_time);
   return (
     <div className="rounded-lg border border-border bg-card px-4 py-3">
@@ -162,6 +215,15 @@ function MeetingCard({ meeting }: { meeting: Meeting }) {
             )}
           </div>
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+          onClick={() => onDeleteRequest(meeting)}
+          title="Delete meeting"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
       </div>
       <div className="mt-1.5 text-xs font-mono text-muted-foreground/40 truncate">
         {applicationId(meeting.meeting_id)}
