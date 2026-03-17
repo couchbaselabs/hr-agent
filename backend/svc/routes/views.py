@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 from svc.apis.hr_api import HRAPI
 from svc.core.agent import AgentManager
 from svc.core.db import CouchbaseClient
-from svc.models.models import HealthResponse, JobMatchRequest, JobMatchResponse, ResumeUploadResponse, CandidateResponse, InitialMeetingRequest, InitialMeetingResponse
+from svc.models.models import HealthResponse, JobMatchRequest, JobMatchResponse, ResumeUploadResponse, GenerateResumeRequest, CandidateResponse, InitialMeetingRequest, InitialMeetingResponse, ConversationGradeResponse, ApplicationResponse, MeetingResponse, PendingEmailResponse, AutoSendSettings
 
 router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
@@ -55,6 +55,13 @@ async def match_candidates(req: Request, request: JobMatchRequest):
     """
     agent = req.state.agent_manager
     return HRAPI.match_candidates(request, agent)
+
+@router.post("/api/generate-resume", response_model=ResumeUploadResponse)
+async def generate_resume(req: Request, background_tasks: BackgroundTasks, request: GenerateResumeRequest):
+    """Generate a random resume PDF and queue it for processing."""
+    agent = req.state.agent_manager
+    return await HRAPI.generate_resume(request, background_tasks, agent)
+
 
 @router.post("/api/upload-resume", response_model=ResumeUploadResponse)
 async def upload_resume(
@@ -131,6 +138,110 @@ async def send_meeting_request(req: Request, request: InitialMeetingRequest):
     """
     agent = req.state.agent_manager
     return HRAPI.send_meeting_request(request, agent)
+
+@router.get("/api/applications", response_model=List[ApplicationResponse])
+async def list_applications(req: Request):
+    """Return all candidate applications, newest first."""
+    agent = req.state.agent_manager
+    return HRAPI.get_applications(agent)
+
+
+@router.get("/api/meetings", response_model=List[MeetingResponse])
+async def list_meetings(req: Request):
+    """Return all scheduled meetings, sorted by slot ascending."""
+    agent = req.state.agent_manager
+    return HRAPI.get_meetings(agent)
+
+
+@router.get("/api/applications/{application_id}/grade", response_model=ConversationGradeResponse)
+async def get_application_grade(application_id: str, req: Request):
+    """Return the stored session grade for an application (no re-grading)."""
+    agent = req.state.agent_manager
+    return HRAPI.get_application_grade(application_id, agent)
+
+
+@router.post("/api/applications/{application_id}/grade", response_model=ConversationGradeResponse)
+async def grade_application(application_id: str, req: Request):
+    """Grade the full email thread for an application via its linked session."""
+    agent = req.state.agent_manager
+    return HRAPI.grade_application(application_id, agent)
+
+
+@router.delete("/api/applications/{application_id}")
+async def delete_application(application_id: str, req: Request):
+    """Delete an application and its associated pending email."""
+    agent = req.state.agent_manager
+    return HRAPI.delete_application(application_id, agent)
+
+
+@router.delete("/api/meetings")
+async def delete_meeting(start_time: str, end_time: str, req: Request):
+    """Delete a meeting timeslot. Pass start_time and end_time as ISO 8601 query params."""
+    agent = req.state.agent_manager
+    return HRAPI.delete_meeting(start_time, end_time, agent)
+
+
+@router.get("/api/applications/{application_id}/pending-email", response_model=PendingEmailResponse)
+async def get_pending_email(application_id: str, req: Request):
+    """Return the pending (unsent) email for an application, if any."""
+    agent = req.state.agent_manager
+    return HRAPI.get_pending_email(application_id, agent)
+
+
+@router.post("/api/applications/{application_id}/pending-email", response_model=PendingEmailResponse)
+async def update_pending_email(application_id: str, req: Request, body: dict):
+    """Update the text body of a pending email before sending."""
+    agent = req.state.agent_manager
+    text = body.get("text", "")
+    return HRAPI.update_pending_email(application_id, text, agent)
+
+
+@router.post("/api/applications/{application_id}/send-email")
+async def send_pending_email(application_id: str, req: Request):
+    """Send the pending email for an application via AgentMail."""
+    agent = req.state.agent_manager
+    return HRAPI.send_pending_email(application_id, agent)
+
+
+
+@router.get("/api/settings/auto-send", response_model=AutoSendSettings)
+async def get_auto_send(req: Request):
+    """Return the current auto-send settings."""
+    agent = req.state.agent_manager
+    return HRAPI.get_auto_send(agent)
+
+
+@router.post("/api/settings/auto-send", response_model=AutoSendSettings)
+async def set_auto_send(req: Request, settings: AutoSendSettings):
+    """Update auto-send settings."""
+    agent = req.state.agent_manager
+    return HRAPI.set_auto_send(settings.enabled, settings.min_score, agent)
+
+
+@router.get("/api/traces")
+async def get_traces(req: Request, limit: int = 50, offset: int = 0, session: str = None, date: str = None):
+    """Return agent activity logs grouped by session. Pass date=YYYY-MM-DD to filter by day."""
+    agent = req.state.agent_manager
+    return HRAPI.get_traces(agent, limit=limit, offset=offset, session=session, date=date)
+
+@router.post("/api/traces/{session_id}/grade", response_model=ConversationGradeResponse)
+async def grade_session(session_id: str, req: Request):
+    """Grade the full session conversation using the LLM evaluator."""
+    agent = req.state.agent_manager
+    return HRAPI.grade_session(session_id, agent)
+
+@router.post("/api/traces/{session_id}/logs/{log_id}/grade", response_model=ConversationGradeResponse)
+async def grade_log(session_id: str, log_id: str, req: Request):
+    """Grade a single log entry in isolation."""
+    agent = req.state.agent_manager
+    return HRAPI.grade_log(session_id, log_id, agent)
+
+@router.get("/api/traces/{session_id}/grades")
+async def get_session_grades(session_id: str, req: Request):
+    """Return all stored grades for a session (both session-level and per-log)."""
+    agent = req.state.agent_manager
+    grades = HRAPI._load_grades([session_id], agent)
+    return {"grades": list(grades.values())}
 
 @router.post('/webhook/agentmail')
 async def receive_email_notification(req: Request):

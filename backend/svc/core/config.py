@@ -44,10 +44,21 @@ CAPELLA_API_EMBEDDING_MODEL = os.getenv("CAPELLA_API_EMBEDDING_MODEL")
 CAPELLA_API_LLM_KEY = os.getenv("CAPELLA_API_LLM_KEY")
 CAPELLA_API_LLM_MODEL = os.getenv("CAPELLA_API_LLM_MODEL", "deepseek-ai/DeepSeek-R1-Distill-Llama-8B")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_API")
+GOOGLE_MODEL   = os.getenv("GOOGLE_MODEL", "gemini-2.0-flash")
+# "openai" | "gemini" — runtime-switchable via /api/settings/ai-provider
+AI_PROVIDER    = os.getenv("AI_PROVIDER", "openai")
 
 # AgentMail configuration
 INBOX_USERNAME = os.getenv("INBOX_USERNAME", "hrbot")
 PORT = int(os.getenv("AGENTMAIL_PORT", "8000"))
 WEBHOOK_DOMAIN = os.getenv("WEBHOOK_DOMAIN", "llama-daring-thankingly.ngrok-free.app")
 AGENTMAIL_API_KEY = os.getenv("AGENTMAIL_API_KEY")
+
+# Agent Catalog activity log location (agentc defaults)
+AGENT_CATALOG_BUCKET = os.getenv("AGENT_CATALOG_BUCKET", "agentc")
+AGENT_CATALOG_LOGS_SCOPE = os.getenv("AGENT_CATALOG_LOGS_SCOPE", "agent_activity")
+AGENT_CATALOG_LOGS_COLLECTION = os.getenv("AGENT_CATALOG_LOGS_COLLECTION", "logs")
+AGENT_CATALOG_GRADES_COLLECTION = os.getenv("AGENT_CATALOG_GRADES_COLLECTION", "grades")
 SERVER_URL = os.getenv("SERVER_URL", "")

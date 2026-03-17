@@ -63,6 +63,109 @@ export interface InitialMeetingResponse {
   application_id: string;
 }
 
+export interface Application {
+  id: string;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  full_name?: string;
+  position?: string;
+  company_name?: string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+  email_sent_at?: string;
+  session_id?: string;
+}
+
+export interface PendingEmail {
+  application_id: string;
+  subject: string;
+  to: string;
+  text: string;           // hydrated from agentc trace or text_override
+  text_override?: string; // set when user edits the draft
+  email_type: 'initial' | 'reply';
+  status: 'pending' | 'sent' | 'discarded';
+  created_at?: string;
+  sent_at?: string;
+  inbox_id?: string;
+  message_id?: string;
+}
+
+export interface AutoSendSettings {
+  enabled: boolean;
+  min_score: number;
+}
+
+export interface Meeting {
+  meeting_id: string;       // application:: key of the linked application
+  start_time: string;
+  end_time: string;
+  duration_minutes?: number;
+  month?: string;
+}
+
+// Trace / activity log types matching agentc Log schema
+export interface TraceSpan {
+  name: string[];
+  session: string;
+}
+
+export interface TraceLogContent {
+  kind: 'user' | 'assistant' | 'tool-call' | 'tool-result' | 'chat-completion' | 'request-header' | 'begin' | 'end' | 'key-value' | 'edge' | 'system';
+  // user / assistant
+  value?: string;
+  extra?: Record<string, unknown>;
+  // tool-call
+  tool_name?: string;
+  tool_call_id?: string;
+  tool_args?: Record<string, unknown>;
+  // tool-result
+  tool_result?: string;
+  status?: string;
+  // chat-completion
+  output?: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface TraceLog {
+  identifier: string;
+  span: TraceSpan;
+  timestamp: string;
+  content: TraceLogContent;
+  annotations?: Record<string, unknown>;
+}
+
+export interface TraceSession {
+  session: string;
+  span_name: string[];
+  started_at: string;
+  logs: TraceLog[];
+  stored_grade?: ConversationGrade;          // session-level grade from DB
+  log_grades?: Record<string, ConversationGrade>; // per-log grades keyed by log identifier
+}
+
+export interface TracesResponse {
+  sessions: TraceSession[];
+  total: number;
+  error?: string;
+}
+
+export interface ConversationGrade {
+  session: string;
+  log_id?: string;
+  grade_scope: 'session' | 'log';
+  score: number;        // 0-10
+  label: 'excellent' | 'good' | 'acceptable' | 'poor' | 'failed' | string;
+  summary: string;
+  issues: string[];
+  strengths: string[];
+  off_topic: boolean;
+  anomalies: string[];
+  stored_at?: string;
+  error?: string;
+}
+
 // API Client Class
 class HRAgentClient {
   private baseURL: string;
@@ -166,6 +269,26 @@ class HRAgentClient {
   /**
    * Upload a resume PDF for processing
    */
+  async generateResume(params: {
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    profile?: string;
+    template?: string;
+    instructions?: string;
+  }): Promise<ResumeUploadResponse> {
+    const response = await fetch(`${this.baseURL}/api/generate-resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(error.detail || error.error || 'Failed to generate resume');
+    }
+    return response.json();
+  }
+
   async uploadResume(file: File): Promise<ResumeUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -211,6 +334,122 @@ class HRAgentClient {
       throw new Error(`Failed to fetch stats: ${response.statusText}`);
     }
 
+    return response.json();
+  }
+
+  /**
+   * Grade an email scheduling conversation by session ID
+   */
+  async gradeSession(sessionId: string): Promise<ConversationGrade> {
+    const response = await fetch(`${this.baseURL}/api/traces/${encodeURIComponent(sessionId)}/grade`, {
+      method: 'POST',
+    });
+    if (!response.ok) throw new Error(`Failed to grade session: ${response.statusText}`);
+    return response.json();
+  }
+
+  /**
+   * Grade a single log entry within a session
+   */
+  async gradeLog(sessionId: string, logId: string): Promise<ConversationGrade> {
+    const response = await fetch(
+      `${this.baseURL}/api/traces/${encodeURIComponent(sessionId)}/logs/${encodeURIComponent(logId)}/grade`,
+      { method: 'POST' }
+    );
+    if (!response.ok) throw new Error(`Failed to grade log: ${response.statusText}`);
+    return response.json();
+  }
+
+  /**
+   * Fetch agent activity traces grouped by session
+   */
+  async getTraces(limit: number = 50, offset: number = 0, session?: string, date?: string): Promise<TracesResponse> {
+    const params = new URLSearchParams({ limit: limit.toString(), offset: offset.toString() });
+    if (session) params.set('session', session);
+    if (date) params.set('date', date);
+    const response = await fetch(`${this.baseURL}/api/traces?${params}`);
+    if (!response.ok) throw new Error(`Failed to fetch traces: ${response.statusText}`);
+    return response.json();
+  }
+
+  async listApplications(): Promise<Application[]> {
+    const response = await fetch(`${this.baseURL}/api/applications`);
+    if (!response.ok) throw new Error(`Failed to fetch applications: ${response.statusText}`);
+    return response.json();
+  }
+
+  async listMeetings(): Promise<Meeting[]> {
+    const response = await fetch(`${this.baseURL}/api/meetings`);
+    if (!response.ok) throw new Error(`Failed to fetch meetings: ${response.statusText}`);
+    return response.json();
+  }
+
+  async getApplicationGrade(applicationId: string): Promise<ConversationGrade> {
+    const response = await fetch(`${this.baseURL}/api/applications/${encodeURIComponent(applicationId)}/grade`);
+    if (!response.ok) throw new Error(`${response.status}`);
+    return response.json();
+  }
+
+  async gradeApplication(applicationId: string): Promise<ConversationGrade> {
+    const response = await fetch(
+      `${this.baseURL}/api/applications/${encodeURIComponent(applicationId)}/grade`,
+      { method: 'POST' }
+    );
+    if (!response.ok) throw new Error(`Failed to grade: ${response.statusText}`);
+    return response.json();
+  }
+
+  async deleteApplication(applicationId: string): Promise<void> {
+    const response = await fetch(
+      `${this.baseURL}/api/applications/${encodeURIComponent(applicationId)}`,
+      { method: 'DELETE' }
+    );
+    if (!response.ok) throw new Error(`Failed to delete application: ${response.statusText}`);
+  }
+
+  async deleteMeeting(startTime: string, endTime: string): Promise<void> {
+    const params = new URLSearchParams({ start_time: startTime, end_time: endTime });
+    const response = await fetch(`${this.baseURL}/api/meetings?${params}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error(`Failed to delete meeting: ${response.statusText}`);
+  }
+
+  async getPendingEmail(applicationId: string): Promise<PendingEmail> {
+    const response = await fetch(`${this.baseURL}/api/applications/${encodeURIComponent(applicationId)}/pending-email`);
+    if (!response.ok) throw new Error(`${response.status}`);
+    return response.json();
+  }
+
+  async updatePendingEmail(applicationId: string, text: string): Promise<PendingEmail> {
+    const response = await fetch(
+      `${this.baseURL}/api/applications/${encodeURIComponent(applicationId)}/pending-email`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }
+    );
+    if (!response.ok) throw new Error(`Failed to update email: ${response.statusText}`);
+    return response.json();
+  }
+
+  async sendPendingEmail(applicationId: string): Promise<{ status: string }> {
+    const response = await fetch(
+      `${this.baseURL}/api/applications/${encodeURIComponent(applicationId)}/send-email`,
+      { method: 'POST' }
+    );
+    if (!response.ok) throw new Error(`Failed to send email: ${response.statusText}`);
+    return response.json();
+  }
+
+  async getAutoSendSettings(): Promise<AutoSendSettings> {
+    const response = await fetch(`${this.baseURL}/api/settings/auto-send`);
+    if (!response.ok) throw new Error(`Failed to fetch settings: ${response.statusText}`);
+    return response.json();
+  }
+
+  async setAutoSendSettings(settings: AutoSendSettings): Promise<AutoSendSettings> {
+    const response = await fetch(`${this.baseURL}/api/settings/auto-send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    });
+    if (!response.ok) throw new Error(`Failed to save settings: ${response.statusText}`);
     return response.json();
   }
 
