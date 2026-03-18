@@ -181,3 +181,6 @@ backend/burgundydavidluckham-root-certificate.txt
 
 # Environment files for Render deployment
 .env.render
+
+# certs
+*root-certificate*
