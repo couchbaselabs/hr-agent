@@ -36,7 +36,7 @@ Unite the example files into a single `.env` in the root:
 ```sh
 cp .env.example .env
 # Add frontend vars from frontend/.env.example
-echo "VITE_API_BASE_URL=htttps://abc123.ngrok-free.app" >> .env
+echo "VITE_API_BASE_URL=https://abc123.ngrok-free.app" >> .env
 ```
 
 Edit `.env` with these settings (based on your setup):
@@ -119,6 +119,8 @@ Visit `http://localhost:8000` in your browser.
 
 ## Running Couchbase and the App Locally with Docker Compose
 
+Using Docker Compose, you can run the app locally with Couchbase Enterprise Server:
+
 Clean: `docker compose down -v `
 Build: `docker compose build --build-arg VITE_API_BASE_URL="https://abc123.ngrok-free.app"`
-Run: `docker compose up` 
+Run: `docker compose -env-file .env up`

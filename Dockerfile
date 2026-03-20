@@ -123,4 +123,4 @@ HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
 
 # Start the application using entrypoint
 ENTRYPOINT [ "/app/entrypoint.sh" ]
-CMD ["bash", "-lc", "exec gunicorn -k uvicorn.workers.UvicornWorker -w 1 -b '0.0.0.0:8000'  svc.main:app"]
+CMD ["bash", "-lc", "exec gunicorn -k uvicorn.workers.UvicornWorker --timeout $TIMEOUT -w 1 -b '0.0.0.0:8000'  svc.main:app"]
