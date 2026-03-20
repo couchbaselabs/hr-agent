@@ -34,9 +34,9 @@ An AI-powered HR assistant demo that matches candidates to jobs using vector sea
 Unite the example files into a single `.env` in the root:
 
 ```sh
-cp backend/.env.render.example .env
+cp .env.example .env
 # Add frontend vars from frontend/.env.example
-echo "VITE_API_BASE_URL=http://localhost:8000" >> .env
+echo "VITE_API_BASE_URL=htttps://abc123.ngrok-free.app" >> .env
 ```
 
 Edit `.env` with these settings (based on your setup):
@@ -49,6 +49,14 @@ Edit `.env` with these settings (based on your setup):
   - `CB_SCOPE=agentc_data` (scope)
   - `CB_COLLECTION=candidates` (collection)
   - `CB_INDEX=candidates_index` (search index name)
+
+- **Couchbase Capella**:
+  - `CB_ORGANIZATION_ID=xxx` (Your Capella organization ID)
+  - `CB_PROJECT_ID=XXX` (Your Capella project ID)
+  - `CB_CLUSTER_ID=XXX` (Your Capella cluster ID)
+  - `CB_API_KEY=XXX` (Your Capella API Secret)
+
+These will be used to create the needed buckets, scopes, collections, indexes etc... (see `scripts/init-couchbase-capella.sh` for details)
 
 - **Capella AI** (preferred):
   - `CAPELLA_API_ENDPOINT=https://your-endpoint.ai.cloud.couchbase.com` (from Capella AI dashboard)
@@ -108,3 +116,9 @@ Visit `http://localhost:8000` in your browser.
 - `backend/.env.render.example`: Backend env template
 - `frontend/.env.example`: Frontend env template
 - `backend/agentcatalog_index.json`: Vector index definition
+
+## Running Couchbase and the App Locally with Docker Compose
+
+Clean: `docker compose down -v `
+Build: `docker compose build --build-arg VITE_API_BASE_URL="https://abc123.ngrok-free.app"`
+Run: `docker compose up` 

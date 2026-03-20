@@ -10,54 +10,42 @@ services:
       - couchbase_data:/opt/couchbase/var
       - ./scripts/couchbase-entrypoint.sh:/init-entrypoint.sh:ro
     environment:
-      CB_USER: Administrator
-      CB_PASS: password
+      CB_USERNAME: ${CB_USERNAME:-Administrator}
+      CB_PASSWORD: ${CB_PASSWORD:-password}
     healthcheck:
       # Verify the node is up and has the query service enabled
-      test: ["CMD", "sh", "-c", "curl -sf -u Administrator:password http://localhost:8091/pools/default | grep -q '\"n1ql\"'"]
+      test: ["CMD", "sh", "-c", "curl -sf -u ${CB_USERNAME:-Administrator}:${CB_PASSWORD:-password} http://localhost:8091/pools/default | grep -q '\"n1ql\"'"]
       interval: 10s
       timeout: 5s
       retries: 30
       start_period: 60s
 
-  couchbase-init:
-    image: curlimages/curl:latest
-    container_name: hr-couchbase-init
-    depends_on:
-      couchbase:
-        condition: service_healthy
-    volumes:
-      - ./scripts/init-couchbase.sh:/init-couchbase.sh:ro
-      - ./backend/agentcatalog_index.json:/agentcatalog_index.json:ro
-    environment:
-      CB_HOST: couchbase
-      CB_USER: Administrator
-      CB_PASS: password
-    entrypoint: ["sh", "/init-couchbase.sh", "--no-docker"]
 
   app:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
     container_name: hr-app
     ports:
       - "8000:8000"
     depends_on:
-      couchbase-init:
-        condition: service_completed_successfully
+      couchbase:
+        condition: service_healthy
     environment:
       CB_CONN_STRING: couchbase://couchbase
-      CB_USERNAME: Administrator
-      CB_PASSWORD: password
-      CB_BUCKET: default
-      CB_SCOPE: agentc_data
-      CB_COLLECTION: candidates
-      CB_AGENDA_COLLECTION: timeslots
-      CB_INDEX: candidates_index
-      AGENT_CATALOG_BUCKET: agentc
-      AGENT_CATALOG_LOGS_SCOPE: agent_activity
-      AGENT_CATALOG_LOGS_COLLECTION: logs
-      AGENT_CATALOG_GRADES_COLLECTION: grades
+      CB_USERNAME: ${CB_USERNAME:-Administrator}
+      CB_PASSWORD: ${CB_PASSWORD:-password}
+      CB_BUCKET: ${CB_BUCKET:-default}
+      CB_SCOPE: ${CB_SCOPE:-agentc_data}
+      CB_COLLECTION: ${CB_COLLECTION:-candidates}
+      CB_AGENDA_COLLECTION: ${CB_AGENDA_COLLECTION:-timeslots}
+      CB_INDEX: ${CB_INDEX:-candidates_index}
+      AGENT_CATALOG_BUCKET: ${AGENT_CATALOG_BUCKET:-agentc}
+      AGENT_CATALOG_LOGS_SCOPE: ${AGENT_CATALOG_LOGS_SCOPE:-agent_activity}
+      AGENT_CATALOG_LOGS_COLLECTION: ${AGENT_CATALOG_LOGS_COLLECTION:-logs}
+      AGENT_CATALOG_GRADES_COLLECTION: ${AGENT_CATALOG_GRADES_COLLECTION:-grades}
       WORKERS: 1
       TIMEOUT: 300
       API_USERNAME: ubuntu
@@ -66,23 +54,22 @@ services:
       API_ALGORITHM: HS256
       API_ACCESS_TOKEN_EXPIRE_MINUTES: 5256000
       AGENT_CATALOG_CONN_STRING: couchbase://couchbase
-      AGENT_CATALOG_USERNAME: Administrator
-      AGENT_CATALOG_PASSWORD: password
-      CAPELLA_API_ENDPOINT: https://xxxxx.ai.cloud.couchbase.com
-      CAPELLA_API_LLM_KEY: cbsk-v1-XXXX
-      CAPELLA_API_LLM_MODEL: deepseek-ai/deepseek-r1-distill-llama-8b
-      CAPELLA_API_EMBEDDINGS_KEY: cbsk-v1-XXXXX
-      CAPELLA_API_EMBEDDING_MODEL: nvidia/llama-3.2-nv-embedqa-1b-v2
-      RESUME_DIR: resumes
-      OPENAI_API_KEY: sk-proj-XXXX
-      AGENTMAIL_API_KEY: am_XXXX
-      NGROK_AUTHTOKEN: XXXXX
-      WEBHOOK_DOMAIN: XXXXXXXX.ngrok-free.app
-      INBOX_USERNAME: hrbot
-      TOKENIZERS_PARALLELISM: false
-      SKIP_INDEX_CREATION: true
-      VITE_API_BASE_URL: XXXXXXXX.ngrok-free.app
-      PRODUCTION: true
+      AGENT_CATALOG_USERNAME: ${AGENT_CATALOG_USERNAME:-Administrator}
+      AGENT_CATALOG_PASSWORD: ${AGENT_CATALOG_PASSWORD:-password}
+      CAPELLA_API_ENDPOINT: ${CAPELLA_API_ENDPOINT:-https://xxxxx.ai.cloud.couchbase.com}
+      CAPELLA_API_LLM_KEY: ${CAPELLA_API_LLM_KEY:-cbsk-v1-XXXX}
+      CAPELLA_API_LLM_MODEL: ${CAPELLA_API_LLM_MODEL:-deepseek-ai/deepseek-r1-distill-llama-8b}
+      CAPELLA_API_EMBEDDINGS_KEY: ${CAPELLA_API_EMBEDDINGS_KEY:-cbsk-v1-XXXXX}
+      CAPELLA_API_EMBEDDING_MODEL: ${CAPELLA_API_EMBEDDING_MODEL:-nvidia/llama-3.2-nv-embedqa-1b-v2}
+      RESUME_DIR: ${RESUME_DIR:-resumes}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      AGENTMAIL_API_KEY: ${AGENTMAIL_API_KEY}
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+      WEBHOOK_DOMAIN: ${WEBHOOK_DOMAIN}
+      INBOX_USERNAME: ${INBOX_USERNAME:-hrbot}
+      TOKENIZERS_PARALLELISM: ${TOKENIZERS_PARALLELISM:-false}
+      SKIP_INDEX_CREATION: ${SKIP_INDEX_CREATION:-true}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
     env_file:
       - path: .env
         required: false
@@ -91,7 +78,7 @@ services:
       - ./backend/logs:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://${APP_HOST:-127.0.0.1}:8000/health/')"]
       interval: 30s
       timeout: 10s
       retries: 3

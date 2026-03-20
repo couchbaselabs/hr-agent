@@ -9,19 +9,19 @@
 #   ./scripts/init-couchbase.sh [--no-docker]
 #
 #   --no-docker   Skip container startup; connect to an already-running
-#                 Couchbase instance (uses CB_HOST / CB_USER / CB_PASS).
+#                 Couchbase instance (uses CB_HOST / CB_USERNAME / CB_PASSWORD).
 #
 # Environment overrides (all optional):
 #   CB_HOST      Couchbase host  (default: localhost)
-#   CB_USER      Admin username  (default: Administrator)
-#   CB_PASS      Admin password  (default: password)
+#   CB_USERNAME  Admin username  (default: Administrator)
+#   CB_PASSWORD  Admin password  (default: password)
 #   CB_PORT      Management port (default: 8091)
 # ---------------------------------------------------------------------------
 set -e
 
 CB_HOST="${CB_HOST:-localhost}"
-CB_USER="${CB_USER:-Administrator}"
-CB_PASS="${CB_PASS:-password}"
+CB_USERNAME="${CB_USERNAME:-Administrator}"
+CB_PASSWORD="${CB_PASSWORD:-password}"
 CB_PORT="${CB_PORT:-8091}"
 
 # Bucket / scope / collection names — match the app's env vars and defaults
@@ -54,7 +54,7 @@ done
 # ---------------------------------------------------------------------------
 
 mgmt_curl() {
-  curl -s -u "${CB_USER}:${CB_PASS}" "$@"
+  curl -s -u "${CB_USERNAME}:${CB_PASSWORD}" "$@"
 }
 
 wait_for_port() {
@@ -63,7 +63,7 @@ wait_for_port() {
   echo "Waiting for ${label}..."
   i=0
   while [ $i -lt 90 ]; do
-    if curl -sf -u "${CB_USER}:${CB_PASS}" "$url" -o /dev/null 2>/dev/null; then
+    if curl -sf -u "${CB_USERNAME}:${CB_PASSWORD}" "$url" -o /dev/null 2>/dev/null; then
       echo "  ${label} ready"
       return 0
     fi
@@ -169,7 +169,7 @@ mgmt_curl -X POST "${MGMT_BASE}/pools/default" \
   -o /dev/null || true
 
 mgmt_curl -X POST "${MGMT_BASE}/settings/web" \
-  -d "username=${CB_USER}&password=${CB_PASS}&port=SAME" \
+  -d "username=${CB_USERNAME}&password=${CB_PASSWORD}&port=SAME" \
   -o /dev/null || true
 
 mgmt_curl -X POST "${MGMT_BASE}/settings/indexes" \
@@ -232,8 +232,8 @@ wait_for_port "FTS service (8094)" "${FTS_BASE}/api/bucket/${CB_BUCKET}/scope/${
 
 echo "Creating FTS vector index (candidates_index)..."
 
-if [ -f "/agentcatalog_index.json" ]; then
-  INDEX_JSON="/agentcatalog_index.json"
+if [ -f "/app/agentcatalog_index.json" ]; then
+  INDEX_JSON="/app/agentcatalog_index.json"
 else
   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
   INDEX_JSON="${SCRIPT_DIR}/../backend/agentcatalog_index.json"
@@ -255,7 +255,7 @@ else
   # queries via /api/bucket/{bucket}/scope/{scope}/index so the index must live
   # at the scoped path to be found.
   HTTP_STATUS=$(curl -s -o /tmp/fts_response.json -w "%{http_code}" \
-    -u "${CB_USER}:${CB_PASS}" \
+    -u "${CB_USERNAME}:${CB_PASSWORD}" \
     -X PUT "${FTS_BASE}/api/bucket/${CB_BUCKET}/scope/${CB_SCOPE}/index/${CB_INDEX}" \
     -H "Content-Type: application/json" \
     -d @/tmp/fts_index_patched.json)

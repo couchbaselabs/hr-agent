@@ -8,6 +8,7 @@
 # ==========================================
 FROM node:20-alpine AS frontend-builder
 
+ARG VITE_API_BASE_URL
 # Set working directory
 WORKDIR /app/frontend
 
@@ -85,6 +86,9 @@ COPY backend/svc/ ./svc/
 COPY backend/email_html_template.html ./
 COPY backend/email_text_template.txt ./
 COPY backend/agentcatalog_index.json ./
+
+# Copy scripts directory
+COPY scripts/ ./scripts/
 
 # Copy built frontend static files to the static directory
 COPY --from=frontend-builder /app/frontend/dist ./static
