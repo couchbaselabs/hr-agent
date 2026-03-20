@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import BackgroundTasks, File, UploadFile, HTTPException, Request
 from jinja2 import Template
 
-from svc.core.config import DEFAULT_BUCKET, DEFAULT_COLLECTION, DEFAULT_SCOPE, DEFAULT_INDEX, DEFAULT_RESUME_DIR, DEFAULT_AGENDA_COLLECTION, AGENT_CATALOG_BUCKET, AGENT_CATALOG_LOGS_SCOPE, AGENT_CATALOG_LOGS_COLLECTION, AGENT_CATALOG_GRADES_COLLECTION
+from svc.core.config import DEFAULT_BUCKET, DEFAULT_COLLECTION, DEFAULT_SCOPE, DEFAULT_INDEX, DEFAULT_RESUME_DIR, DEFAULT_AGENDA_COLLECTION, AGENT_CATALOG_BUCKET, AGENT_CATALOG_LOGS_SCOPE, AGENT_CATALOG_LOGS_COLLECTION, AGENT_CATALOG_GRADES_COLLECTION, INBOX_USERNAME
 from svc.core.agent import AgentManager
 from agentmail import AgentMail
 from jinja2 import Template
@@ -1062,7 +1062,7 @@ Return ONLY valid JSON with the same keys. Adjust years of experience, job title
             settings = {"enabled": False, "min_score": 9}
 
         auto_send = settings.get("enabled", False)
-
+        inbox_id = f"{INBOX_USERNAME}@agentmail.to"
         # Store as pending for human review
         try:
             agenda_collection = get_agenda_collection(agent_manager.couchbase_client.cluster)
@@ -1072,7 +1072,7 @@ Return ONLY valid JSON with the same keys. Adjust years of experience, job title
                 subject=subject,
                 to=email,
                 email_type="initial",
-                inbox_id="hrbot@agentmail.to",
+                inbox_id=inbox_id,
                 message_id=None,
             )
         except Exception as pe:
@@ -1086,7 +1086,7 @@ Return ONLY valid JSON with the same keys. Adjust years of experience, job title
                 if session_id:
                     labels.append(_session_label(session_id))
                 sent_message = client.inboxes.messages.send(
-                    inbox_id='hrbot@agentmail.to',
+                    inbox_id=inbox_id,
                     to=email,
                     labels=labels,
                     subject=subject,
@@ -1282,7 +1282,8 @@ Return ONLY valid JSON with the same keys. Adjust years of experience, job title
                 raise HTTPException(status_code=422, detail="Could not resolve email text from trace")
 
             client = get_agentmail_client()
-            inbox_id = doc.get("inbox_id", "hrbot@agentmail.to")
+            default_inbox_id =  f"{INBOX_USERNAME}@agentmail.to"
+            inbox_id = doc.get("inbox_id", default_inbox_id)
             original_message_id = doc.get("message_id")
 
             if doc.get("email_type") == "reply" and original_message_id:
